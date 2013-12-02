@@ -1,4 +1,5 @@
 require 'minitest/autorun'
+require 'minitest/mock'
 require File.expand_path('../fake_action_controller_session_abstract_store', __FILE__)
 require 'redis-session-store'
 
@@ -98,6 +99,105 @@ describe RedisSessionStore do
 
     it 'assigns the :expire_after option to @default_options' do
       default_options[:expire_after].must_equal 60 * 60
+    end
+  end
+
+  describe 'when initializing with store_expire_after' do
+    def options
+      {
+        :key => random_string,
+        :secret => random_string,
+        :redis => {
+          :host => 'hosty.local',
+          :port => 16379,
+          :db => 2,
+          :key_prefix => 'myapp:session:',
+          :store_expire_after => 60 * 180
+        }
+      }
+    end
+
+    it 'creates a redis instance' do
+      store.instance_variable_get(:@redis).wont_equal nil
+    end
+
+    it 'doesn\'t assign the :expire_after option to @default_options' do
+      default_options[:expire_after].must_be_nil
+    end
+
+    it 'assigns the :store_expire_after option to @default_options' do
+      default_options[:store_expire_after].must_equal 60 * 180
+    end
+
+    it 'uses store_expire_after to set expiry' do
+      st = store
+
+      env_mock = Minitest::Mock.new
+      env_mock.expect(:[], default_options, ['rack.session.options'])
+
+      sid = '1234'
+      session_data = 'abc'
+
+      key = st.send(:prefixed, sid)
+      mock = Minitest::Mock.new
+      mock.expect(:setex, true, [key, 60 * 180, Marshal.dump(session_data)])
+
+      st.instance_variable_set(:@redis, mock)
+      
+      st.send(:set_session, env_mock, sid, session_data).must_equal true
+
+      env_mock.verify
+      mock.verify
+    end
+  end
+
+  describe 'when initializing with both expire_after and store_expire_after' do
+    def options
+      {
+        :key => random_string,
+        :secret => random_string,
+        :redis => {
+          :host => 'hosty.local',
+          :port => 16379,
+          :db => 2,
+          :key_prefix => 'myapp:session:',
+          :expire_after => 60 * 30,
+          :store_expire_after => 60 * 90
+        }
+      }
+    end
+
+    it 'creates a redis instance' do
+      store.instance_variable_get(:@redis).wont_equal nil
+    end
+
+    it 'assigns the :expire_after option to @default_options' do
+      default_options[:expire_after].must_equal 60 * 30
+    end
+
+    it 'assigns the :store_expire_after option to @default_options' do
+      default_options[:store_expire_after].must_equal 60 * 90
+    end
+
+    it 'expire_after takes precedence over store_expire_after to set expiry' do
+      st = store
+
+      env_mock = Minitest::Mock.new
+      env_mock.expect(:[], default_options, ['rack.session.options'])
+
+      sid = '1234'
+      session_data = 'abc'
+
+      key = st.send(:prefixed, sid)
+      mock = Minitest::Mock.new
+      mock.expect(:setex, true, [key, 60 * 30, Marshal.dump(session_data)])
+
+      st.instance_variable_set(:@redis, mock)
+      
+      st.send(:set_session, env_mock, sid, session_data).must_equal true
+
+      env_mock.verify
+      mock.verify
     end
   end
 end
